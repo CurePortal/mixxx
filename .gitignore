@@ -72,3 +72,9 @@ src/mixxx.rc.include
 src/mixxx.res
 src/test/**/*.actual
 res/qrc_mixxx.cc
+
+# Arch package build artifacts
+packaging/arch-stream/pkg/
+packaging/arch-stream/src/
+packaging/arch-stream/*.pkg.tar.zst
+packaging/arch-stream/mixxx-stream-files.tar.zst

@@ -1,0 +1,122 @@
+# Maintainer: Cure <info@odd.events>
+#
+# EXPERIMENTAL SoundCloud/Deezer fork of Mixxx.
+#
+# !!! READ THIS !!!
+#
+# This packages an *experimental* fork, NOT upstream Mixxx. It is tracked on a
+# separate branch (`experimental/streaming`) and is deliberately NOT kept in
+# sync with the upstream `main` branch, so it will fall behind upstream fixes,
+# improvements and security patches over time.
+#
+# USE AT YOUR OWN RISK.
+#
+# It installs in parallel to the official `mixxx` package:
+#   * binaries  -> /opt/mixxx-stream/bin
+#   * resources -> /opt/mixxx-stream/share/mixxx
+#   * desktop   -> /usr/share/applications/org.mixxx.stream.desktop
+#   * udev      -> /usr/lib/udev/rules.d/69-mixxx-stream-usb-uaccess.rules
+#
+# Because it lives under its own name and prefix, `pacman -Syu` and updates to
+# the `mixxx` package will NOT overwrite or break this one. Uninstall it with
+# `pacman -R mixxx-stream` at any time.
+
+pkgname=mixxx-stream
+# NOTE: keep this in sync with the fork. The suffix marks the fork revision and
+# does not track upstream.
+pkgver=2.7.0.alpha.r2.g5dd6965
+pkgrel=1
+pkgdesc="Experimental SoundCloud/Deezer streaming fork of Mixxx (not upstream, use at your own risk)"
+arch=('x86_64')
+url="https://github.com/CurePortal/mixxx"
+license=('GPL-2.0-or-later')
+# Direct shared-library dependencies of the prebuilt binary. Transitive
+# dependencies are resolved by pacman automatically.
+depends=(
+  'abseil-cpp' 'chromaprint' 'ffmpeg' 'flac' 'glib2' 'glibc' 'hidapi' 'lame'
+  'libebur128' 'libgcc' 'libglvnd' 'libice' 'libid3tag' 'libkeyfinder'
+  'libmad' 'libmodplug' 'libogg' 'libpipewire' 'libsm' 'libsndfile'
+  'libstdc++' 'libusb' 'libvorbis' 'libx11' 'libxext' 'libxkbcommon' 'lilv'
+  'openssl' 'opus' 'opusfile' 'portaudio' 'portmidi' 'protobuf' 'qt6-5compat'
+  'qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-shadertools' 'qt6-svg'
+  'qtkeychain-qt6' 'rubberband' 'soundtouch' 'sqlite' 'taglib1' 'upower'
+  'wavpack' 'zlib'
+)
+makedepends=('zstd')
+# `mixxx` (official) and `mixxx-stream` install launchers/udev rules that would
+# otherwise conflict only if they shared paths; they do not, but the desktop
+# application name is kept distinct on purpose.
+provides=()
+conflicts=()
+options=('!strip' '!debug')
+
+# Prebuilt file tree produced from the fork's build directory, so users do not
+# need to rebuild Mixxx (a very large, slow build). Regenerate with
+# `packaging/arch/update-package.sh` after rebuilding the fork.
+source=("mixxx-stream-files.tar.zst")
+sha256sums=('SKIP')
+
+package() {
+  # Install the whole prebuilt tree (bin + share) under /opt/mixxx-stream.
+  tar -I zstd -xf "${srcdir}/mixxx-stream-files.tar.zst" -C "${pkgdir}/"
+
+  # Ship the license/documentation shipped by upstream.
+  install -Dm644 "${pkgdir}/opt/mixxx-stream/share/doc/mixxx/COPYING" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+  install -Dm644 "${pkgdir}/opt/mixxx-stream/share/doc/mixxx/LICENSE" \
+    "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+  # Desktop entry with a distinct application id, pointing at the /opt prefix.
+  install -Dm644 /dev/stdin \
+    "${pkgdir}/usr/share/applications/org.mixxx.stream.desktop" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Mixxx (streaming fork)
+GenericName=Digital DJ interface
+Comment=Experimental SoundCloud/Deezer fork of Mixxx. Not upstream; use at your own risk.
+Exec=mixxx-stream
+Icon=mixxx-stream
+Terminal=false
+Categories=Qt;AudioVideo;Audio;Midi;Mixer;Player;Recorder;Sequencer;
+StartupNotify=true
+Keywords=dj;music;alsa;jack;realtime;standalone;soundcloud;deezer;tidal;
+EOF
+
+  # Icons under a fork-specific name so they do not clash with the official ones.
+  for icon in mixxx mixxx_ios mixxx_macos; do
+    install -Dm644 \
+      "${pkgdir}/opt/mixxx-stream/share/icons/hicolor/scalable/apps/${icon}.svg" \
+      "${pkgdir}/usr/share/icons/hicolor/scalable/apps/mixxx-stream${icon#mixxx}.svg"
+  done
+
+  # AppStream metadata (distinct id).
+  install -d "${pkgdir}/usr/share/metainfo"
+  sed 's/org\.mixxx\.Mixxx/org.mixxx.stream/g' \
+    "${pkgdir}/opt/mixxx-stream/share/metainfo/org.mixxx.Mixxx.metainfo.xml" \
+    > "${pkgdir}/usr/share/metainfo/org.mixxx.stream.metainfo.xml"
+
+  # USB controller permissions. The rule content is identical to upstream's,
+  # so it is installed under a fork-specific filename.
+  install -Dm644 \
+    "${pkgdir}/opt/mixxx-stream/share/mixxx/udev/rules.d/mixxx-usb-uaccess.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/69-mixxx-stream-usb-uaccess.rules"
+
+  # The prebuilt binary finds /opt/mixxx-stream/share/mixxx automatically via
+  # its own prefix. A wrapper is still provided and used by the desktop entry so
+  # the resource path is explicit and works from any CWD.
+  install -d "${pkgdir}/usr/bin"
+  cat > "${pkgdir}/usr/bin/mixxx-stream" <<'EOF'
+#!/bin/sh
+exec /opt/mixxx-stream/bin/mixxx \
+  --resource-path /opt/mixxx-stream/share/mixxx "$@"
+EOF
+  chmod 755 "${pkgdir}/usr/bin/mixxx-stream"
+
+  # Shadow the official `mixxx` command for interactive shells. It is only
+  # installed to /usr/local/bin (which precedes /usr/bin in PATH) and is owned
+  # by a file that no pacman package provides, so it does not conflict with the
+  # official mixxx package and is removed cleanly on uninstall.
+  install -d "${pkgdir}/usr/local/bin"
+  ln -s /usr/bin/mixxx-stream "${pkgdir}/usr/local/bin/mixxx"
+}
